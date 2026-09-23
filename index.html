@@ -3,114 +3,103 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>胶片分镜条核对台</title>
+    <title>试映排期台</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="shell">
       <header class="hero">
         <div>
-          <p class="eyebrow">纸质放映胶片整理</p>
-          <h1>胶片分镜条核对台</h1>
+          <p class="eyebrow">纸质放映胶片 · 试映安排</p>
+          <h1>试映排期台</h1>
         </div>
         <div class="hero-stats">
           <div>
-            <span>总时长</span>
-            <strong id="totalDuration">0:00</strong>
+            <span>已排定</span>
+            <strong id="statScheduled">0</strong>
           </div>
           <div>
-            <span>破损片段</span>
-            <strong id="damageCount">0</strong>
+            <span>待排</span>
+            <strong id="statPending">0</strong>
           </div>
           <div>
-            <span>片段数</span>
-            <strong id="segmentCount">0</strong>
+            <span>已完成</span>
+            <strong id="statDone">0</strong>
+          </div>
+          <div>
+            <span>未修复片段</span>
+            <strong id="statUnrepaired">0</strong>
           </div>
         </div>
       </header>
 
-      <section class="toolbar">
-        <label>
-          胶片卷
-          <input id="reelTitle" type="text" placeholder="例：春日试映A卷" />
-        </label>
-        <label>
-          颜色偏移
-          <select id="colorFilter">
-            <option value="all">全部</option>
-            <option value="正常">正常</option>
-            <option value="偏红">偏红</option>
-            <option value="偏青">偏青</option>
-            <option value="偏黄">偏黄</option>
-            <option value="褪色">褪色</option>
-          </select>
-        </label>
-        <label>
-          搜索
-          <input id="searchInput" type="search" placeholder="片段编号或备注" />
-        </label>
-        <button id="exportBtn">导出清单</button>
-      </section>
+      <div id="notice" class="notice" hidden></div>
 
       <section class="layout">
         <aside class="panel">
-          <h2>录入片段</h2>
-          <form id="segmentForm" class="segment-form">
-            <label>
-              片段编号
-              <input id="codeInput" required placeholder="A-014" />
-            </label>
-            <label>
-              时长秒数
-              <input id="durationInput" required type="number" min="1" value="12" />
-            </label>
-            <label>
-              颜色偏移
-              <select id="shiftInput">
-                <option value="正常">正常</option>
-                <option value="偏红">偏红</option>
-                <option value="偏青">偏青</option>
-                <option value="偏黄">偏黄</option>
-                <option value="褪色">褪色</option>
-              </select>
-            </label>
-            <label>
-              破损情况
-              <select id="damageInput">
-                <option value="完好">完好</option>
-                <option value="轻微划痕">轻微划痕</option>
-                <option value="齿孔破损">齿孔破损</option>
-                <option value="接片松动">接片松动</option>
-                <option value="需跳过">需跳过</option>
-              </select>
-            </label>
-            <label>
-              缩略图
-              <input id="thumbInput" type="file" accept="image/*" />
-            </label>
-            <label>
-              备注
-              <textarea id="noteInput" rows="4" placeholder="试映前要留意的画面、接片或声音点"></textarea>
-            </label>
-            <button class="primary" type="submit">加入放映清单</button>
-          </form>
+          <h2>片段底片</h2>
+          <p class="panel-tip">修改修复状态或时长后，相关未来场次自动退回待排，已完成场次保留。</p>
+          <div id="segmentList" class="segment-list"></div>
         </aside>
 
-        <section class="panel list-panel">
+        <section class="panel schedule-panel">
+          <h2>排片</h2>
+          <form id="scheduleForm" class="schedule-form">
+            <label>
+              片段
+              <select id="segmentSelect"></select>
+            </label>
+            <label>
+              影厅
+              <select id="hallSelect"></select>
+            </label>
+            <label>
+              放映员
+              <select id="projectionistSelect"></select>
+            </label>
+            <label>
+              日期
+              <input id="dateInput" type="date" required />
+            </label>
+            <label>
+              开始时间
+              <input id="startInput" type="time" required value="14:00" />
+            </label>
+            <div class="form-foot">
+              <span id="endHint" class="end-hint"></span>
+              <button class="primary" type="submit">加入待存批次</button>
+            </div>
+          </form>
+          <p class="panel-tip">时段为连续整块，结束时间按片段当前时长自动计算。</p>
+
           <div class="panel-head">
-            <h2>放映顺序</h2>
-            <span>拖拽片段调整顺序</span>
+            <h2>待存批次</h2>
+            <div class="batch-actions">
+              <button id="saveBatchBtn" class="primary" type="button">保存排期</button>
+              <button id="clearBatchBtn" type="button">清空</button>
+            </div>
           </div>
-          <div id="segmentList" class="segment-list"></div>
+          <div id="batchErrors" class="batch-errors" hidden></div>
+          <div id="batchList" class="batch-list"></div>
+
+          <div class="panel-head">
+            <h2>排期表</h2>
+            <span id="scheduleCount"></span>
+          </div>
+          <div id="scheduleList" class="schedule-list"></div>
         </section>
 
-        <aside class="panel warning-panel">
-          <h2>试映前核对</h2>
-          <div id="warningList" class="warning-list"></div>
+        <aside class="panel">
+          <h2>提醒</h2>
+          <div id="reminderList" class="warning-list"></div>
+          <h2 class="block-gap">影厅负载</h2>
+          <div id="hallLoads" class="load-list"></div>
         </aside>
       </section>
     </main>
 
+    <script src="rules.js"></script>
+    <script src="store.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

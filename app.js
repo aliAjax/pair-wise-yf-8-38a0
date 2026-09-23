@@ -1,216 +1,228 @@
-const storageKey = "zfl17-film-strip-desk";
+// 试映排期台 · 页面
+// 只负责渲染与交互；规则走 Screening（ScreeningRules），存档走 ScreeningStore。
+const Rules = window.ScreeningRules;
+const Store = window.ScreeningStore;
 
-const fallbackThumbs = ["#d49b35", "#347d89", "#b54d48", "#4d7656", "#6d6378"];
-
-const defaultState = {
-  reelTitle: "春日试映A卷",
-  segments: [
-    {
-      id: crypto.randomUUID(),
-      code: "A-001",
-      duration: 18,
-      shift: "正常",
-      damage: "完好",
-      note: "开场街景，节奏平稳，适合保留原顺序。",
-      thumb: ""
-    },
-    {
-      id: crypto.randomUUID(),
-      code: "A-006",
-      duration: 9,
-      shift: "偏红",
-      damage: "轻微划痕",
-      note: "人物近景左侧有划痕，试映时留意是否明显。",
-      thumb: ""
-    },
-    {
-      id: crypto.randomUUID(),
-      code: "A-012",
-      duration: 14,
-      shift: "褪色",
-      damage: "接片松动",
-      note: "接片位置靠近段尾，放映前建议重新压平。",
-      thumb: ""
-    }
-  ]
-};
-
-let state = loadState();
-let draggedId = null;
+let state = Store.load();
+let batch = []; // 待存批次：只在内存里，点“保存排期”时整批校验
 
 const els = {
-  reelTitle: document.querySelector("#reelTitle"),
-  colorFilter: document.querySelector("#colorFilter"),
-  searchInput: document.querySelector("#searchInput"),
-  segmentForm: document.querySelector("#segmentForm"),
-  codeInput: document.querySelector("#codeInput"),
-  durationInput: document.querySelector("#durationInput"),
-  shiftInput: document.querySelector("#shiftInput"),
-  damageInput: document.querySelector("#damageInput"),
-  thumbInput: document.querySelector("#thumbInput"),
-  noteInput: document.querySelector("#noteInput"),
+  statScheduled: document.querySelector("#statScheduled"),
+  statPending: document.querySelector("#statPending"),
+  statDone: document.querySelector("#statDone"),
+  statUnrepaired: document.querySelector("#statUnrepaired"),
   segmentList: document.querySelector("#segmentList"),
-  warningList: document.querySelector("#warningList"),
-  totalDuration: document.querySelector("#totalDuration"),
-  damageCount: document.querySelector("#damageCount"),
-  segmentCount: document.querySelector("#segmentCount"),
-  exportBtn: document.querySelector("#exportBtn")
+  scheduleForm: document.querySelector("#scheduleForm"),
+  segmentSelect: document.querySelector("#segmentSelect"),
+  hallSelect: document.querySelector("#hallSelect"),
+  projectionistSelect: document.querySelector("#projectionistSelect"),
+  dateInput: document.querySelector("#dateInput"),
+  startInput: document.querySelector("#startInput"),
+  endHint: document.querySelector("#endHint"),
+  saveBatchBtn: document.querySelector("#saveBatchBtn"),
+  clearBatchBtn: document.querySelector("#clearBatchBtn"),
+  batchErrors: document.querySelector("#batchErrors"),
+  batchList: document.querySelector("#batchList"),
+  scheduleList: document.querySelector("#scheduleList"),
+  scheduleCount: document.querySelector("#scheduleCount"),
+  reminderList: document.querySelector("#reminderList"),
+  hallLoads: document.querySelector("#hallLoads"),
+  notice: document.querySelector("#notice")
 };
 
-function loadState() {
-  const saved = localStorage.getItem(storageKey);
-  if (!saved) return structuredClone(defaultState);
-  try {
-    return { ...structuredClone(defaultState), ...JSON.parse(saved) };
-  } catch {
-    return structuredClone(defaultState);
-  }
+function todayStr() {
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
 }
 
-function saveState() {
-  localStorage.setItem(storageKey, JSON.stringify(state));
+function formatDate(dateStr) {
+  const [, month, day] = String(dateStr || "").split("-");
+  return month && day ? `${Number(month)}月${Number(day)}日` : dateStr;
 }
 
-function getFilteredSegments() {
-  const color = els.colorFilter.value;
-  const keyword = els.searchInput.value.trim();
-  return state.segments.filter((item) => {
-    const matchesColor = color === "all" || item.shift === color;
-    const matchesKeyword = !keyword || `${item.code}${item.note}${item.damage}`.includes(keyword);
-    return matchesColor && matchesKeyword;
-  });
+function findSegment(id) {
+  return state.segments.find((item) => item.id === id);
+}
+
+function findHall(id) {
+  return state.halls.find((item) => item.id === id);
+}
+
+function findProjectionist(id) {
+  return state.projectionists.find((item) => item.id === id);
+}
+
+function showNotice(text, isError) {
+  els.notice.textContent = text;
+  els.notice.classList.toggle("error", Boolean(isError));
+  els.notice.hidden = false;
 }
 
 function renderStats() {
-  const total = state.segments.reduce((sum, item) => sum + Number(item.duration), 0);
-  const damaged = state.segments.filter((item) => item.damage !== "完好").length;
-  els.totalDuration.textContent = formatDuration(total);
-  els.damageCount.textContent = damaged;
-  els.segmentCount.textContent = state.segments.length;
+  const stats = Rules.computeStats(state);
+  els.statScheduled.textContent = stats.scheduled;
+  els.statPending.textContent = stats.pending;
+  els.statDone.textContent = stats.done;
+  els.statUnrepaired.textContent = stats.unrepaired;
 }
 
-function renderList() {
-  const segments = getFilteredSegments();
-  els.segmentList.innerHTML =
-    segments
+function renderSelects() {
+  const keep = {
+    segment: els.segmentSelect.value,
+    hall: els.hallSelect.value,
+    projectionist: els.projectionistSelect.value
+  };
+  els.segmentSelect.innerHTML = state.segments
+    .map((seg) => `<option value="${seg.id}">${escapeHtml(seg.code)}｜${seg.duration}分钟${seg.repaired ? "" : "｜未修复"}</option>`)
+    .join("");
+  els.hallSelect.innerHTML = state.halls
+    .map((hall) => `<option value="${hall.id}">${escapeHtml(hall.name)}｜容量${hall.capacity}分钟</option>`)
+    .join("");
+  els.projectionistSelect.innerHTML = state.projectionists
+    .map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`)
+    .join("");
+  if (state.segments.some((s) => s.id === keep.segment)) els.segmentSelect.value = keep.segment;
+  if (state.halls.some((h) => h.id === keep.hall)) els.hallSelect.value = keep.hall;
+  if (state.projectionists.some((p) => p.id === keep.projectionist)) els.projectionistSelect.value = keep.projectionist;
+}
+
+function renderSegments() {
+  els.segmentList.innerHTML = state.segments
+    .map(
+      (seg) => `
+        <article class="segment-card ${seg.repaired ? "" : "unrepaired"}">
+          <div class="segment-title">
+            <strong>${escapeHtml(seg.code)}</strong>
+            <span class="tag ${seg.repaired ? "ok" : "damage"}">${seg.repaired ? "已修复" : "未修复"}</span>
+          </div>
+          <p class="segment-note">${escapeHtml(seg.note || "")}</p>
+          <div class="segment-edit">
+            <label>
+              时长(分钟)
+              <input type="number" min="1" value="${seg.duration}" data-duration="${seg.id}" />
+            </label>
+            <label class="repair-toggle">
+              <input type="checkbox" ${seg.repaired ? "checked" : ""} data-repaired="${seg.id}" />
+              已修复
+            </label>
+          </div>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function renderBatch() {
+  els.batchList.innerHTML =
+    batch
       .map((item, index) => {
-        const realIndex = state.segments.findIndex((segment) => segment.id === item.id);
-        const hasDamage = item.damage !== "完好";
+        const seg = findSegment(item.segmentId);
+        const hall = findHall(item.hallId);
+        const proj = findProjectionist(item.projectionistId);
+        const end = seg ? Rules.toTimeStr(Rules.toMinutes(item.start) + Number(seg.duration)) : "?";
         return `
-          <article class="segment-card" draggable="true" data-id="${item.id}">
-            <div class="thumb">
-              ${
-                item.thumb
-                  ? `<img src="${item.thumb}" alt="${escapeHtml(item.code)}缩略图" />`
-                  : `<div class="film-placeholder" style="background:${fallbackThumbs[realIndex % fallbackThumbs.length]}">${escapeHtml(item.code)}</div>`
-              }
-            </div>
-            <div class="segment-main">
-              <div class="segment-title">
-                <strong>${realIndex + 1}. ${escapeHtml(item.code)}</strong>
-                <span>${formatDuration(item.duration)}</span>
-              </div>
-              <div class="tag-row">
-                <span class="tag">${escapeHtml(item.shift)}</span>
-                <span class="tag ${hasDamage ? "damage" : "ok"}">${escapeHtml(item.damage)}</span>
-              </div>
-              <p class="segment-note">${escapeHtml(item.note || "没有备注。")}</p>
-            </div>
-            <div class="segment-actions">
-              <button type="button" title="上移" data-move-up="${item.id}">↑</button>
-              <button type="button" title="下移" data-move-down="${item.id}">↓</button>
-              <button type="button" title="删除" data-delete="${item.id}">×</button>
-            </div>
-          </article>
-        `;
-      })
-      .join("") || `<p class="empty">没有符合筛选的片段。</p>`;
-}
-
-function renderWarnings() {
-  const warnings = state.segments.filter((item) => item.damage !== "完好" || item.shift !== "正常");
-  els.warningList.innerHTML =
-    warnings
-      .map((item) => {
-        const index = state.segments.findIndex((segment) => segment.id === item.id) + 1;
-        const reasons = [item.shift !== "正常" ? item.shift : "", item.damage !== "完好" ? item.damage : ""].filter(Boolean).join(" · ");
-        return `
-          <div class="warning-item">
-            <strong>${index}. ${escapeHtml(item.code)}</strong>
-            <span>${escapeHtml(reasons)}${item.note ? `：${escapeHtml(item.note)}` : ""}</span>
+          <div class="batch-row">
+            <span>「${escapeHtml(seg ? seg.code : "?")}」${formatDate(item.date)} ${item.start}–${end} · ${escapeHtml(hall ? hall.name : "?")} · ${escapeHtml(proj ? proj.name : "?")}</span>
+            <button type="button" title="移出批次" data-batch-remove="${index}">×</button>
           </div>
         `;
       })
-      .join("") || `<p class="empty">当前清单没有颜色偏移或破损提醒。</p>`;
+      .join("") || `<p class="empty">批次为空。用上方表单加入场次，点“保存排期”整批校验入库。</p>`;
+}
+
+function renderBatchErrors(errors) {
+  if (!errors.length) {
+    els.batchErrors.hidden = true;
+    els.batchErrors.innerHTML = "";
+    return;
+  }
+  els.batchErrors.hidden = false;
+  els.batchErrors.innerHTML = `<strong>整批未保存，原排期未改动：</strong><ul>${errors
+    .map((err) => `<li>${escapeHtml(err)}</li>`)
+    .join("")}</ul>`;
+}
+
+function renderSchedule() {
+  const sorted = [...state.screenings].sort(
+    (a, b) => a.date.localeCompare(b.date) || Rules.toMinutes(a.start) - Rules.toMinutes(b.start)
+  );
+  els.scheduleCount.textContent = sorted.length ? `共 ${sorted.length} 场` : "";
+  els.scheduleList.innerHTML =
+    sorted
+      .map((s) => {
+        const seg = findSegment(s.segmentId);
+        const hall = findHall(s.hallId);
+        const proj = findProjectionist(s.projectionistId);
+        const end = Rules.toTimeStr(Rules.endOf(s));
+        const actions =
+          s.status === "scheduled"
+            ? `<button type="button" data-done="${s.id}">标记完成</button><button type="button" data-delete="${s.id}">删除</button>`
+            : s.status === "pending"
+              ? `<button type="button" data-reschedule="${s.id}">重新排定</button><button type="button" data-delete="${s.id}">删除</button>`
+              : "";
+        return `
+          <article class="schedule-row ${s.status}">
+            <span class="tag status-${s.status}">${Rules.STATUS_LABELS[s.status]}</span>
+            <div class="schedule-main">
+              <strong>「${escapeHtml(seg ? seg.code : "未知片段")}」</strong>
+              <span>${formatDate(s.date)} ${s.start}–${end} · ${escapeHtml(hall ? hall.name : "?")} · ${escapeHtml(proj ? proj.name : "?")}</span>
+            </div>
+            <div class="schedule-actions">${actions}</div>
+          </article>
+        `;
+      })
+      .join("") || `<p class="empty">还没有排期。</p>`;
+}
+
+function renderReminders() {
+  const reminders = Rules.buildReminders(state);
+  els.reminderList.innerHTML =
+    reminders
+      .map((item) => `<div class="warning-item ${item.type}"><span>${escapeHtml(item.text)}</span></div>`)
+      .join("") || `<p class="empty">暂无提醒。</p>`;
+}
+
+function renderLoads() {
+  const loads = Rules.hallLoads(state);
+  els.hallLoads.innerHTML =
+    loads
+      .map((load) => {
+        const percent = load.capacity > 0 ? Math.min(100, Math.round((load.minutes / load.capacity) * 100)) : 0;
+        return `
+          <div class="load-item">
+            <div class="load-head">
+              <strong>${escapeHtml(load.hall.name)}</strong>
+              <span>${formatDate(load.date)} · ${load.minutes}/${load.capacity} 分钟</span>
+            </div>
+            <div class="load-bar"><span style="width:${percent}%"></span></div>
+          </div>
+        `;
+      })
+      .join("") || `<p class="empty">还没有占用影厅的场次。</p>`;
+}
+
+function updateEndHint() {
+  const seg = findSegment(els.segmentSelect.value);
+  const startMin = Rules.toMinutes(els.startInput.value);
+  if (!seg || Number.isNaN(startMin)) {
+    els.endHint.textContent = "";
+    return;
+  }
+  els.endHint.textContent = `连续时段 ${els.startInput.value}–${Rules.toTimeStr(startMin + Number(seg.duration))}（${seg.duration} 分钟）`;
 }
 
 function renderAll() {
-  saveState();
-  els.reelTitle.value = state.reelTitle;
+  Store.save(state);
   renderStats();
-  renderList();
-  renderWarnings();
-}
-
-function formatDuration(seconds) {
-  const value = Number(seconds) || 0;
-  const minutes = Math.floor(value / 60);
-  const rest = String(value % 60).padStart(2, "0");
-  return `${minutes}:${rest}`;
-}
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve) => {
-    if (!file) {
-      resolve("");
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => resolve("");
-    reader.readAsDataURL(file);
-  });
-}
-
-async function addSegment(event) {
-  event.preventDefault();
-  const thumb = await readFileAsDataUrl(els.thumbInput.files[0]);
-  state.segments.push({
-    id: crypto.randomUUID(),
-    code: els.codeInput.value.trim(),
-    duration: Number(els.durationInput.value),
-    shift: els.shiftInput.value,
-    damage: els.damageInput.value,
-    note: els.noteInput.value.trim(),
-    thumb
-  });
-  els.segmentForm.reset();
-  els.durationInput.value = 12;
-  renderAll();
-}
-
-function moveSegment(id, direction) {
-  const index = state.segments.findIndex((item) => item.id === id);
-  const target = index + direction;
-  if (index < 0 || target < 0 || target >= state.segments.length) return;
-  const [item] = state.segments.splice(index, 1);
-  state.segments.splice(target, 0, item);
-  renderAll();
-}
-
-function exportList() {
-  const lines = [
-    `胶片卷：${state.reelTitle || "未命名胶片卷"}`,
-    `总时长：${formatDuration(state.segments.reduce((sum, item) => sum + Number(item.duration), 0))}`,
-    "",
-    ...state.segments.map((item, index) => `${index + 1}. ${item.code}｜${formatDuration(item.duration)}｜${item.shift}｜${item.damage}｜${item.note || "无备注"}`)
-  ];
-  const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = `${state.reelTitle || "film-reel"}-checklist.txt`;
-  link.click();
-  URL.revokeObjectURL(link.href);
+  renderSelects();
+  renderSegments();
+  renderBatch();
+  renderSchedule();
+  renderReminders();
+  renderLoads();
+  updateEndHint();
 }
 
 function escapeHtml(value) {
@@ -222,50 +234,129 @@ function escapeHtml(value) {
     .replaceAll("'", "&#039;");
 }
 
-els.reelTitle.addEventListener("input", () => {
-  state.reelTitle = els.reelTitle.value;
-  saveState();
-});
-els.colorFilter.addEventListener("change", renderList);
-els.searchInput.addEventListener("input", renderList);
-els.segmentForm.addEventListener("submit", addSegment);
-els.exportBtn.addEventListener("click", exportList);
+// 片段修复状态或时长变化 → 未来场次退回待排，已完成保留
+els.segmentList.addEventListener("change", (event) => {
+  const durationInput = event.target.closest("[data-duration]");
+  const repairInput = event.target.closest("[data-repaired]");
+  const target = durationInput || repairInput;
+  if (!target) return;
+  const id = target.dataset.duration || target.dataset.repaired;
+  const seg = findSegment(id);
+  if (!seg) return;
 
-els.segmentList.addEventListener("click", (event) => {
-  const up = event.target.closest("[data-move-up]");
-  const down = event.target.closest("[data-move-down]");
-  const remove = event.target.closest("[data-delete]");
-  if (up) moveSegment(up.dataset.moveUp, -1);
-  if (down) moveSegment(down.dataset.moveDown, 1);
-  if (remove) {
-    state.segments = state.segments.filter((item) => item.id !== remove.dataset.delete);
+  let changeText = "";
+  if (durationInput) {
+    const value = Math.max(1, Number(durationInput.value) || 1);
+    if (value === seg.duration) return;
+    seg.duration = value;
+    changeText = `片段 ${seg.code} 时长改为 ${value} 分钟`;
+  } else {
+    if (repairInput.checked === seg.repaired) return;
+    seg.repaired = repairInput.checked;
+    changeText = `片段 ${seg.code} ${seg.repaired ? "标记为已修复" : "标记为未修复"}`;
+  }
+  const reverted = Rules.revertFutureScreenings(state, seg.id);
+  renderAll();
+  showNotice(reverted ? `${changeText}，${reverted} 场未来场次退回待排。` : `${changeText}。`);
+});
+
+els.scheduleForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  batch.push({
+    segmentId: els.segmentSelect.value,
+    hallId: els.hallSelect.value,
+    projectionistId: els.projectionistSelect.value,
+    date: els.dateInput.value,
+    start: els.startInput.value
+  });
+  renderBatchErrors([]);
+  renderBatch();
+});
+
+els.saveBatchBtn.addEventListener("click", () => {
+  const result = Rules.validateBatch(state, batch);
+  if (!result.ok) {
+    renderBatchErrors(result.errors);
+    showNotice("整批未保存，原排期未改动。", true);
+    return;
+  }
+  for (const item of batch) {
+    const seg = findSegment(item.segmentId);
+    state.screenings.push({
+      id: crypto.randomUUID(),
+      ...item,
+      duration: Number(seg.duration),
+      status: "scheduled"
+    });
+  }
+  const count = batch.length;
+  batch = [];
+  renderBatchErrors([]);
+  renderAll();
+  showNotice(`已保存 ${count} 场排期。`);
+});
+
+els.clearBatchBtn.addEventListener("click", () => {
+  batch = [];
+  renderBatchErrors([]);
+  renderBatch();
+});
+
+els.batchList.addEventListener("click", (event) => {
+  const removeBtn = event.target.closest("[data-batch-remove]");
+  if (!removeBtn) return;
+  batch.splice(Number(removeBtn.dataset.batchRemove), 1);
+  renderBatch();
+});
+
+els.scheduleList.addEventListener("click", (event) => {
+  const btn = event.target.closest("[data-done],[data-reschedule],[data-delete]");
+  if (!btn) return;
+  const id = btn.dataset.done || btn.dataset.reschedule || btn.dataset.delete;
+  const doneBtn = btn.dataset.done ? btn : null;
+  const rescheduleBtn = btn.dataset.reschedule ? btn : null;
+  const deleteBtn = btn.dataset.delete ? btn : null;
+  const screening = state.screenings.find((s) => s.id === id);
+  if (!screening) return;
+
+  if (doneBtn) {
+    screening.status = "done";
     renderAll();
+    showNotice("场次已标记完成。");
+    return;
+  }
+  if (deleteBtn) {
+    state.screenings = state.screenings.filter((s) => s.id !== id);
+    renderAll();
+    showNotice("场次已删除。");
+    return;
+  }
+  if (rescheduleBtn) {
+    const draft = {
+      segmentId: screening.segmentId,
+      hallId: screening.hallId,
+      projectionistId: screening.projectionistId,
+      date: screening.date,
+      start: screening.start
+    };
+    const result = Rules.validateBatch(state, [draft]);
+    if (!result.ok) {
+      showNotice(`无法重新排定：${result.errors.join(" ")}`, true);
+      return;
+    }
+    const seg = findSegment(screening.segmentId);
+    screening.duration = Number(seg.duration);
+    screening.status = "scheduled";
+    renderAll();
+    showNotice("场次已重新排定。");
   }
 });
 
-els.segmentList.addEventListener("dragstart", (event) => {
-  const card = event.target.closest("[data-id]");
-  if (!card) return;
-  draggedId = card.dataset.id;
-  card.classList.add("dragging");
-  event.dataTransfer.effectAllowed = "move";
+els.segmentSelect.addEventListener("change", updateEndHint);
+els.startInput.addEventListener("input", updateEndHint);
+els.notice.addEventListener("click", () => {
+  els.notice.hidden = true;
 });
 
-els.segmentList.addEventListener("dragend", (event) => {
-  event.target.closest("[data-id]")?.classList.remove("dragging");
-  draggedId = null;
-});
-
-els.segmentList.addEventListener("dragover", (event) => {
-  const card = event.target.closest("[data-id]");
-  if (!card || !draggedId || card.dataset.id === draggedId) return;
-  event.preventDefault();
-  const fromIndex = state.segments.findIndex((item) => item.id === draggedId);
-  const toIndex = state.segments.findIndex((item) => item.id === card.dataset.id);
-  if (fromIndex < 0 || toIndex < 0) return;
-  const [item] = state.segments.splice(fromIndex, 1);
-  state.segments.splice(toIndex, 0, item);
-  renderAll();
-});
-
+els.dateInput.value = todayStr();
 renderAll();
