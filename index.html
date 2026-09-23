@@ -3,28 +3,32 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>胶片分镜条核对台</title>
+    <title>胶片试映排期台</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="shell">
       <header class="hero">
         <div>
-          <p class="eyebrow">纸质放映胶片整理</p>
-          <h1>胶片分镜条核对台</h1>
+          <p class="eyebrow">纸质放映胶片整理 · 试映排期</p>
+          <h1>胶片试映排期台</h1>
         </div>
         <div class="hero-stats">
           <div>
-            <span>总时长</span>
-            <strong id="totalDuration">0:00</strong>
+            <span>待映场次</span>
+            <strong id="statScheduled">0</strong>
           </div>
           <div>
-            <span>破损片段</span>
-            <strong id="damageCount">0</strong>
+            <span>待排片段</span>
+            <strong id="statPending">0</strong>
           </div>
           <div>
-            <span>片段数</span>
-            <strong id="segmentCount">0</strong>
+            <span>已完成</span>
+            <strong id="statCompleted">0</strong>
+          </div>
+          <div>
+            <span>待映总时长</span>
+            <strong id="statScheduledSeconds">0:00</strong>
           </div>
         </div>
       </header>
@@ -46,10 +50,15 @@
           </select>
         </label>
         <label>
-          搜索
+          搜索片段
           <input id="searchInput" type="search" placeholder="片段编号或备注" />
         </label>
-        <button id="exportBtn">导出清单</button>
+        <span class="toolbar-buttons">
+          <button id="exportBtn" type="button">导出排期单</button>
+          <button id="exportJsonBtn" type="button">存档导出</button>
+          <button id="importJsonBtn" type="button">存档导入</button>
+          <input id="importFile" type="file" accept="application/json,.json" hidden />
+        </span>
       </section>
 
       <section class="layout">
@@ -84,33 +93,73 @@
                 <option value="需跳过">需跳过</option>
               </select>
             </label>
+            <label class="check-label">
+              <input id="repairedInput" type="checkbox" />
+              已修复（破损片段勾选后方可排片）
+            </label>
             <label>
               缩略图
               <input id="thumbInput" type="file" accept="image/*" />
             </label>
             <label>
               备注
-              <textarea id="noteInput" rows="4" placeholder="试映前要留意的画面、接片或声音点"></textarea>
+              <textarea id="noteInput" rows="3" placeholder="试映前要留意的画面、接片或声音点"></textarea>
             </label>
             <button class="primary" type="submit">加入放映清单</button>
           </form>
+
+          <div class="panel-head sub-head">
+            <h2>放映顺序</h2>
+            <span>拖拽调整 · 可改时长与修复状态</span>
+          </div>
+          <div id="segmentList" class="segment-list"></div>
         </aside>
 
         <section class="panel list-panel">
-          <div class="panel-head">
-            <h2>放映顺序</h2>
-            <span>拖拽片段调整顺序</span>
+          <h2>批量排片</h2>
+          <p class="hint">
+            一次可填多排片行，整批校验放映员/影厅时段、修复状态与厅容量；任一行不过关，整批不保存，原排期不动。
+          </p>
+          <div class="batch-head" aria-hidden="true">
+            <span>片段</span>
+            <span>影厅</span>
+            <span>放映员</span>
+            <span>开场（结束自动推算）</span>
+            <span></span>
+          </head>
+          <div id="batchRows" class="batch-rows"></div>
+          <div class="batch-actions">
+            <button id="addRowBtn" type="button">+ 加一排片行</button>
+            <button id="clearRowsBtn" type="button">清空待提交行</button>
+            <button id="planBtn" class="primary" type="button">整批保存排期</button>
           </div>
-          <div id="segmentList" class="segment-list"></div>
+          <div id="batchResult" class="batch-result" aria-live="polite"></div>
+
+          <div class="panel-head sub-head">
+            <h2>排期表</h2>
+            <span>
+              <label class="inline-filter">
+                影厅
+                <select id="hallFilter">
+                  <option value="all">全部</option>
+                </select>
+              </label>
+            </span>
+          </div>
+          <div id="scheduleTable" class="schedule-table"></div>
         </section>
 
-        <aside class="panel warning-panel">
-          <h2>试映前核对</h2>
+        <aside class="panel">
+          <h2>排期统计</h2>
+          <div id="hallStats" class="hall-stats"></div>
+          <h2 class="sub-head">提醒</h2>
           <div id="warningList" class="warning-list"></div>
         </aside>
       </section>
     </main>
 
-    <script src="app.js"></script>
+    <script src="rules.js"></script>
+    <script src="archive.js"></script>
+    <script src="page.js"></script>
   </body>
 </html>
